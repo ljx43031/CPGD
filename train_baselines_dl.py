@@ -4,8 +4,7 @@ train_baselines_dl.py
 Trains the learning-based baselines (NB-DLSTM, Transformer, CSDI diffusion-
 imputation) on the *identical* data distribution, blackout augmentation and
 anchor normalisation as CPGD, so the result tables can report a fair
-learned-vs-learned comparison (addresses Reviewer 3 / Reviewer 5 / AE: "no
-learning-based baselines; the SOTA claim is not tested against any learned method").
+learned-vs-learned comparison .
 
 Data generator, curriculum and blackout augmentation are imported directly from
 train_prior_denoiser_v8 -- there is a single source of truth for the training

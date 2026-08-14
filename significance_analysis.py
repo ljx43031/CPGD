@@ -2,10 +2,7 @@
 significance_analysis.py
 ========================
 Post-processing of the Monte-Carlo result .mat files produced by mc_compare_v8.py
-to report dispersion and statistical significance -- directly addressing the
-reviewers' objection (R3, R4, comments): "means over 50 trials but no standard
-deviations, confidence intervals, or significance tests; the 'consistently
-outperforms' claim cannot be assessed."
+to report dispersion and statistical significance
 
 For every scenario and every evaluation segment (Full / Valid / No-Obs /
 Post-Maneuver, matching Tables III-V), and for both position and velocity, it:
@@ -50,14 +47,14 @@ METHOD_LABELS = {
     'cpgd_smooth':    'CPGD',
     'cpgd_causal':    'CPGD (Causal)',
     # ── 外部基线 ──
-    'dlstm':          'NB-DLSTM [Gao2019]',
-    'transformer':    'Transformer [Giuliari2020]',
+    'dlstm':          'NB-DLSTM [16]',
+    'transformer':    'Transformer [18]',
     'transformer_causal': 'Transformer (Causal)',
-    'csdi':           'CSDI [Tashiro2021]',
+    'csdi':           'CSDI [19]',
     'imm':            'IMM-EKF',
-    'T_FoT_GP':       'T-FoT-GP',
-    'T_FoT_StP':      'T-FoT-StP',
-    'T_FoT':          'T-FoT',
+    'T_FoT_GP':       'T-FoT-GP [10]',
+    'T_FoT_StP':      'T-FoT-StP [10]',
+    'T_FoT':          'T-FoT [10]',
     'GPMT':           'GPMT',
 }
 DISPLAY_ORDER = ['obs',
@@ -175,7 +172,8 @@ def summarise(vec):
     n = v.size
     if n == 0:
         return dict(mean=np.nan, std=np.nan, n=0, ci=np.nan,
-                    median=np.nan, q1=np.nan, q3=np.nan, iqr=np.nan, mad=np.nan)
+                    median=np.nan, q1=np.nan, q3=np.nan, iqr=np.nan, mad=np.nan,
+                    p90=np.nan, p95=np.nan, max=np.nan, diverge_frac=np.nan)
     mean = float(np.mean(v))
     std = float(np.std(v, ddof=1)) if n > 1 else 0.0
     if n > 1:

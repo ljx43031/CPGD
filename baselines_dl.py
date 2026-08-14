@@ -1,9 +1,6 @@
 """
 baselines_dl.py
 ===============
-Learning-based baselines for fair comparison against CPGD, addressing the
-reviewers' central objection that every baseline in the paper was a
-training-free stochastic-process tracker (no learned method was tested).
 
 Three learning-based baselines are provided:
 

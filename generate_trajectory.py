@@ -23,6 +23,70 @@ class TrajectorySegment:
     duration: float  # 段持续时间 (s)
 
 
+def apply_nonkinematic(states, dt, rng=None,
+                       stop_rate=0.006, stop_dur=(1.0, 3.0),
+                       sharp_rate=0.010, sharp_ang=(60.0, 150.0)):
+    """把一条平滑 CT 轨迹改造成"行人/车非运动学"轨迹:注入随机急停(速度→0 一段
+    时间)与锐角转向(远超 CT 的瞬时改向,但速度大小连续)。位置由速度重新积分,
+    保证 pos/vel 严格一致。返回新的 (N,4) states。
+
+    这刻画了 CT 模型覆盖不到的真实地面目标行为(行人急停、走停、锐角拐弯),
+    是物理正当的"更难场景"——与'边界反射'不同,它不把目标困在小区域里。
+
+    参数:
+      stop_rate  每帧触发一次急停的概率
+      stop_dur   急停持续时间范围(秒)
+      sharp_rate 每帧触发一次锐角转向的概率
+      sharp_ang  锐角转向角度范围(度)
+    """
+    rng = rng or np.random
+    st = states.copy()
+    N = len(st)
+    pos = st[:, :2].copy()
+    vel = st[:, 2:].copy()
+    speed = np.linalg.norm(vel, axis=1)
+    heading = np.arctan2(vel[:, 1], vel[:, 0])
+
+    # 速度倍率(1=正常, 0=急停),以及逐帧额外转向(rad)
+    speed_scale = np.ones(N)
+    extra_turn = np.zeros(N)
+    k = 1
+    while k < N:
+        r = rng.random()
+        if r < stop_rate:
+            # 急停:一段时间速度压到近 0,平滑进出(避免速度阶跃)
+            dur = rng.uniform(*stop_dur)
+            L = int(dur / dt)
+            e = min(k + L, N)
+            ramp = max(1, L // 5)
+            for j in range(k, e):
+                # 梯形:入 ramp 帧降到 0,出 ramp 帧回到 1
+                if j - k < ramp:
+                    speed_scale[j] = min(speed_scale[j], 1 - (j - k) / ramp)
+                elif e - j < ramp:
+                    speed_scale[j] = min(speed_scale[j], (e - j) / ramp)
+                else:
+                    speed_scale[j] = 0.0
+            k = e
+            continue
+        elif r < stop_rate + sharp_rate:
+            # 锐角转向:在该帧施加一个大转角(方向改变,速度大小不变)
+            ang = np.radians(rng.uniform(*sharp_ang)) * rng.choice([-1, 1])
+            extra_turn[k] += ang
+        k += 1
+
+    # 重新积分:新航向 = 原航向 + 累积额外转角;新速度 = 原速度 * speed_scale
+    new_heading = heading + np.cumsum(extra_turn)
+    new_speed = speed * speed_scale
+    new_vel = np.column_stack([new_speed * np.cos(new_heading),
+                               new_speed * np.sin(new_heading)])
+    new_pos = np.empty_like(pos)
+    new_pos[0] = pos[0]
+    for i in range(1, N):
+        new_pos[i] = new_pos[i - 1] + new_vel[i - 1] * dt
+    return np.column_stack([new_pos, new_vel])
+
+
 class CTMotionModel:
     """匀速转弯运动模型 (Constant Turn Motion Model)"""
 
@@ -122,6 +186,34 @@ class CTMotionModel:
         return F
 
 
+def _boundary_avoid_omega(state, area_size, margin=150.0, max_omega=0.30):
+    """平滑边界规避转弯率(rad/s)。当目标靠近边界且朝外运动时,返回一个把速度
+    朝向场景中心偏转的转弯率——纯转弯(速度大小不变、方向连续),用有限转弯半径
+    的平滑弧线代替原来的瞬时速度翻转/反射。远离边界时返回 0。
+
+    转弯率随'接近程度 prox'与'朝外程度 outward'平滑增大,故不存在速度不连续。
+    """
+    x, y, vx, vy = state
+    bx, by = area_size[0], area_size[1]
+    dmin = min(x, bx - x, y, by - y)         # 到最近边界的距离
+    if dmin >= margin:
+        return 0.0
+    prox = min((margin - dmin) / margin, 1.5)  # 0..1.5(出界时>1)
+    v = np.array([vx, vy]); vn = np.linalg.norm(v)
+    if vn < 1e-6:
+        return 0.0
+    center = np.array([bx / 2 - x, by / 2 - y]); cn = np.linalg.norm(center)
+    if cn < 1e-6:
+        return 0.0
+    vdir = v / vn; cdir = center / cn
+    outward = -float(np.dot(vdir, cdir))      # +1=径直朝外, <=0=已朝内
+    if outward <= 0.0:
+        return 0.0                             # 已朝向中心,无需干预
+    cross = vdir[0] * cdir[1] - vdir[1] * cdir[0]
+    sign = 1.0 if cross > 0 else -1.0          # 选更快转向中心的方向
+    return sign * max_omega * prox * outward
+
+
 def generate_ct_trajectory(
         initial_state: np.ndarray,
         turn_rate: float,
@@ -130,18 +222,19 @@ def generate_ct_trajectory(
         area_size: Optional[Tuple[float, float]] = None
 ) -> TrajectorySegment:
     """
-    生成单段匀速转弯轨迹
+    生成单段匀速转弯轨迹(近边界时施加平滑向心转弯,无瞬时速度反射)
 
     Args:
         initial_state: 初始状态 [x, y, vx, vy]
         turn_rate: 转弯率 (rad/s)，正值逆时针，负值顺时针
         duration: 段持续时间 (秒)
         dt: 采样间隔 (秒)
+        area_size: (Lx, Ly) 场景边界;若给定则近边界平滑规避
 
     Returns:
         TrajectorySegment: 包含轨迹数据的对象
             - states: (N, 4) 状态矩阵 [x, y, vx, vy]
-            - transition_matrices: (N-1, 4, 4) 状态转移矩阵F
+            - transition_matrices: (N-1, 4, 4) 状态转移矩阵F(逐步,可能随边界规避变化)
             - timestamps: (N,) 时间戳
             - turn_rate: 转弯率
             - speed: 速度大小
@@ -162,17 +255,16 @@ def generate_ct_trajectory(
     state = initial_state.copy()
     states[0] = state
 
-    # 获取状态转移矩阵（对于CT模型，F在每个时间步是相同的）
-    F = model.get_transition_matrix(turn_rate, dt)
-
-    # 递推生成轨迹
+    # 递推生成轨迹。逐步转弯率 = 基础 turn_rate + 平滑边界规避,并限幅到有限
+    # 转弯半径(不发生瞬时方向翻转)。速度大小由 CT 旋转严格保持不变。
     for i in range(1, n_steps):
-        # 保存转移矩阵
+        omega = turn_rate
+        if area_size is not None:
+            omega += _boundary_avoid_omega(state, area_size)
+            omega = float(np.clip(omega, -0.40, 0.40))
+        F = model.get_transition_matrix(omega, dt)
         transition_matrices[i - 1] = F
-
-        # 状态转移
-        state = model.state_transition(state, turn_rate, dt)
-
+        state = model.state_transition(state, omega, dt)
         states[i] = state
 
     # 计算速度大小（应该保持恒定）
@@ -364,35 +456,9 @@ def generate_multi_segment_trajectory(
                 # 如果速度为0，使用x方向
                 new_velocity = np.array([speeds[i + 1], 0.0])
 
-            # ================= 新增：柔性向心引导逻辑（完美保持数学连续性） =================
-            if area_size is not None:
-                bound_x, bound_y = area_size[0], area_size[1]
-                margin = 150.0  # 距离边界 150 米时开始干预
-
-                # 计算当前位置到地图中心的向量
-                center_vec = np.array([bound_x / 2 - final_position[0], bound_y / 2 - final_position[1]])
-                dist_to_center = np.linalg.norm(center_vec)
-
-                # 如果接近边界，或者已经出界
-                if (final_position[0] < margin or final_position[0] > bound_x - margin or
-                        final_position[1] < margin or final_position[1] > bound_y - margin):
-
-                    if dist_to_center > 1e-6:
-                        center_dir = center_vec / dist_to_center
-                        # 强制把下一段的初始速度方向，朝着地图中心的方向进行一定程度的偏转
-                        # 越靠近边界，向心拉力越强
-                        blend_factor = 0.6  # 0.0 完全保持原方向, 1.0 直接指向中心
-                        blended_dir = (1 - blend_factor) * velocity_direction + blend_factor * center_dir
-                        blended_dir /= np.linalg.norm(blended_dir)
-                        new_velocity = blended_dir * speeds[i + 1]
-
-                        # 同时，强制覆盖下一段的 turn_rates[i+1]，确保其轨迹向内弯曲
-                        # 计算当前速度到中心向量的叉乘，决定是左转还是右转能更快朝向中心
-                        cross_prod = blended_dir[0] * center_dir[1] - blended_dir[1] * center_dir[0]
-                        # 强行赋予一个较大的转弯率，使其掉头
-                        turn_rates[i + 1] = 0.25 if cross_prod > 0 else -0.25
-            # =========================================================================
-
+            # 段间只调整速度大小(下一段目标速度),方向严格连续。近边界的
+            # 向心规避由段内 _boundary_avoid_omega 平滑完成——不再在段边界处
+            # 做瞬时速度方向翻转,消除物理上不可能的零半径 180° 反射。
             current_state = np.concatenate([final_position, new_velocity])
 
         current_time = segment.timestamps[-1]

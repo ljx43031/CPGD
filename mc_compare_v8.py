@@ -136,6 +136,17 @@ SCENARIOS = {
         blackout_len=50,
         min_coverage=0.75,   # checked before blackout injection
     ),
+    # 补充场景:行人/车非运动学目标(随机急停 + 锐角转向),medium 难度基底。
+    # 刻画 CT 模型覆盖不到的真实地面目标行为——物理正当的"更难场景"。
+    'pedestrian': dict(
+        n_drones=6, n_obstacles=3,
+        area_size=[1000, 1000, 200],
+        target_speed=[3, 12],
+        drone_speed=[10, 20],
+        label='Pedestrian (non-kinematic: random stops + sharp turns)',
+        nonkinematic=True,
+        min_coverage=0.75,
+    ),
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -435,6 +446,15 @@ def build_one_trial(sc, duration, seed, blackout_len=0):
         start_position=scene['targets'][0].initial_state_2d[:2],
         speed_range=sc['target_speed'],
         area_size=sc['area_size'], obstacles=scene['obstacles'])
+
+    # 可选:注入行人/车非运动学行为(随机急停 + 锐角转向)。位置由速度重新积分,
+    # pos/vel 严格一致,并同步更新 positions_3d(检测过程读它)。
+    if sc.get('nonkinematic', False):
+        from generate_trajectory import apply_nonkinematic
+        new_states = apply_nonkinematic(tgt_traj.states_2d, tgen.dt)
+        tgt_traj.states_2d = new_states
+        tgt_traj.positions_3d[:, :2] = new_states[:, :2]
+
     target_trajs = {tgt_id: tgt_traj}
 
     states = tgt_traj.states_2d

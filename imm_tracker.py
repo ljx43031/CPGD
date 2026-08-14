@@ -1,7 +1,7 @@
 """
 imm_tracker.py
 ==============
-IMM-EKF 经典机动目标跟踪基线(回应 R5:补 IMM-EKF/CKF 经典基线)。
+IMM-EKF 经典机动目标跟踪基线
 
 结构:Interacting Multiple Model (Blom & Bar-Shalom) + 协同转弯(Coordinated
 Turn, CT)EKF 子滤波器。所有子模型共用 5 维状态 [px, py, vx, vy, ω],预测为
