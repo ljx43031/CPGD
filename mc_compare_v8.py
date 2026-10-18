@@ -128,22 +128,23 @@ SCENARIOS = {
         min_coverage=0.65,
     ),
     'blackout': dict(
-        n_drones=6, n_obstacles=3,
-        area_size=[1000, 1000, 200],
-        target_speed=[5, 15],
+        n_drones=5, n_obstacles=5,
+        area_size=[1200, 1200, 200],
+        target_speed=[8, 20],
         drone_speed=[10, 20],
-        label='Blackout (medium + 50-frame forced gap)',
+        label='Blackout (hard + 50-frame forced gap)',
         blackout_len=50,
-        min_coverage=0.75,   # checked before blackout injection
+        min_coverage=0.65,   # checked before blackout injection
     ),
     # 补充场景:行人/车非运动学目标(随机急停 + 锐角转向),medium 难度基底。
     # 刻画 CT 模型覆盖不到的真实地面目标行为——物理正当的"更难场景"。
+    # 速度 1-5 m/s 标定为真实行人步行-慢跑区间(训练覆盖 2-25 m/s,1-2 m/s 为轻度外推)。
     'pedestrian': dict(
         n_drones=6, n_obstacles=3,
         area_size=[1000, 1000, 200],
-        target_speed=[3, 12],
+        target_speed=[1, 5],
         drone_speed=[10, 20],
-        label='Pedestrian (non-kinematic: random stops + sharp turns)',
+        label='Pedestrian (non-kinematic: random stops + sharp turns, 1-5 m/s)',
         nonkinematic=True,
         min_coverage=0.75,
     ),

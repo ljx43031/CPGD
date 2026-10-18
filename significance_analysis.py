@@ -2,7 +2,10 @@
 significance_analysis.py
 ========================
 Post-processing of the Monte-Carlo result .mat files produced by mc_compare_v8.py
-to report dispersion and statistical significance
+to report dispersion and statistical significance -- directly addressing the
+reviewers' objection (R3, R4, comments): "means over 50 trials but no standard
+deviations, confidence intervals, or significance tests; the 'consistently
+outperforms' claim cannot be assessed."
 
 For every scenario and every evaluation segment (Full / Valid / No-Obs /
 Post-Maneuver, matching Tables III-V), and for both position and velocity, it:
@@ -47,14 +50,14 @@ METHOD_LABELS = {
     'cpgd_smooth':    'CPGD',
     'cpgd_causal':    'CPGD (Causal)',
     # ── 外部基线 ──
-    'dlstm':          'NB-DLSTM [16]',
-    'transformer':    'Transformer [18]',
+    'dlstm':          'NB-DLSTM [Gao2019]',
+    'transformer':    'Transformer [Giuliari2020]',
     'transformer_causal': 'Transformer (Causal)',
-    'csdi':           'CSDI [19]',
+    'csdi':           'CSDI [Tashiro2021]',
     'imm':            'IMM-EKF',
-    'T_FoT_GP':       'T-FoT-GP [10]',
-    'T_FoT_StP':      'T-FoT-StP [10]',
-    'T_FoT':          'T-FoT [10]',
+    'T_FoT_GP':       'T-FoT-GP',
+    'T_FoT_StP':      'T-FoT-StP',
+    'T_FoT':          'T-FoT',
     'GPMT':           'GPMT',
 }
 DISPLAY_ORDER = ['obs',
